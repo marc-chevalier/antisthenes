@@ -327,7 +327,8 @@ let score (nb_of_candidates: int) (stats: int CharMap.t) (word: string) (fact: k
   else
     CharMap.cardinal count
 
-let pick_next (dictionary: dictionary) (fact: known_facts) : string option =
+let pick_next ?(silent: bool = false) (dictionary: dictionary) (fact: known_facts) : string option =
+  let printf f = if silent then Format.ifprintf Format.std_formatter f else Ocolor_format.printf f in
   let words = CharMap.find (List.nth fact.known_positions 0 |> Option.value ~default:'a') dictionary.words |> IntMap.find (List.length fact.known_positions) in
   let words = filter_by_fact fact words in
   let stats =
@@ -356,7 +357,7 @@ let pick_next (dictionary: dictionary) (fact: known_facts) : string option =
   | (h, _)::_ ->
     if nb_words < 10 then
       let () =
-        Ocolor_format.printf
+        printf
           {|I found %d word%s: %a. I suggest "%s".@.|}
           nb_words (if nb_words = 1 then "" else "s")
           (Ocolor_format.pp_list_generic ~left:"" ~right:"" ~sep:", " Format.pp_print_string)
@@ -365,35 +366,42 @@ let pick_next (dictionary: dictionary) (fact: known_facts) : string option =
       in
       Some h
     else
-      let () = Ocolor_format.printf {|I found %d word%s. I picked "%s".@.|} nb_words (if nb_words = 1 then "" else "s") h in
+      let () = printf {|I found %d word%s. I picked "%s".@.|} nb_words (if nb_words = 1 then "" else "s") h in
       Some h
   | [] ->
-    let () = Ocolor_format.printf {|I can't find any word matching this fact.@.|} in
+    let () = printf {|I can't find any word matching this fact.@.|} in
     None
 
-let simulation_main () =
-  let () = Random.self_init () in
-  let reference = List.nth dictionary.all (Random.int (List.length dictionary.all)) in
-  let () = Ocolor_format.printf {|Starting simulation from word "%s".@.|} reference in
+let resolution ?(silent: bool = false) (reference: string) : string list =
+  let printf f = if silent then Format.ifprintf Format.std_formatter f else Ocolor_format.printf f in
+  let () = printf {|Starting simulation from word "%s".@.|} reference in
   let fact = initial_fact_from_string reference in
   let rec aux fact =
-    let guess = pick_next dictionary fact in
+    let guess = pick_next ~silent dictionary fact in
     match guess with
-    | None -> ()
+    | None -> []
     | Some guess ->
       let truth_status = truth_of_guess reference guess in
-      let () = Ocolor_format.printf "%a@." pp_truths_and_word truth_status in
+      let () = printf "%a@." pp_truths_and_word truth_status in
       if List.for_all (function (_, Correct) -> true | _ -> false) truth_status
       then
-        let () = Ocolor_format.printf "Found it!@." in
-        ()
+        let () = printf "Found it!@." in
+        [reference]
       else
         let new_fact = facts_of_truth_status truth_status in
         let fact = merge_known_facts new_fact fact in
-        let () = Ocolor_format.printf "%a@." pp_known_facts fact in
-        aux fact
+        let () = printf "%a@." pp_known_facts fact in
+        guess::aux fact
   in
-  let () = aux fact in
+  let tries = aux fact in
+  tries
+
+let simulation_main ?(silent: bool = false) () : unit =
+  let printf f = if silent then Format.ifprintf Format.std_formatter f else Ocolor_format.printf f in
+  let () = Random.self_init () in
+  let reference = List.nth dictionary.all (Random.int (List.length dictionary.all)) in
+  let () = printf {|Starting simulation from word "%s".@.|} reference in
+  let _ = resolution reference ~silent in
   ()
 
 let read_interactive_truth (guess: string) : (char * truth) list =
@@ -440,7 +448,7 @@ let read_interactive_truth (guess: string) : (char * truth) list =
   in
   aux ()
 
-let interactive_main (first: char) (length: int) =
+let interactive_main (first: char) (length: int) : unit =
   let fact = initial_fact_from_first_and_length first length in
   let rec aux fact =
     let guess = pick_next dictionary fact in
@@ -463,14 +471,63 @@ let interactive_main (first: char) (length: int) =
   let () = aux fact in
   ()
 
+let play_main (brag: bool) : unit =
+  let () = Random.self_init () in
+  let reference =
+    let rec aux () =
+      let w = List.nth dictionary.all (Random.int (List.length dictionary.all)) in
+      if String.length w >= 4 && String.length w <= 8 then w else aux ()
+    in
+    aux ()
+  in
+  let () = Ocolor_format.printf "%c%s@." reference.[0] (String.make (String.length reference - 1) '.') in
+  let rec aux tries =
+    let () = Ocolor_format.printf "Guess: %!" in
+    let guess = Scanf.scanf "%s\n" (fun s -> s) in
+    if String.length guess <> String.length reference then
+      let () = Ocolor_format.printf "Mismatching length. Expecting %d, got %d.@." (String.length reference) (String.length guess) in
+      aux tries
+    else if CharMap.find_opt reference.[0] dictionary.words |> Option.map (IntMap.find_opt (String.length reference)) |> Option.join |> Option.value ~default:[] |> List.mem guess |> not then
+      let () = Ocolor_format.printf "Unknown word.@." in
+      aux tries
+    else
+      let truth_status = truth_of_guess reference guess in
+      let () = Ocolor_format.printf "%a@." pp_truths_and_word truth_status in
+      if List.for_all (function (_, Correct) -> true | _ -> false) truth_status
+      then
+        let () = Ocolor_format.printf "Found it in %d step%s!@." (tries + 1) (if tries = 1 then "" else "s") in
+        ()
+      else
+        aux (tries + 1)
+  in
+  let () = aux 0 in
+  if brag then
+    let tries = resolution reference ~silent:true in
+    let () = Ocolor_format.printf "I can do it in %d step%s:@." (List.length tries) (match tries with [_] -> "" | _ -> "s") in
+    let () =
+      List.iter
+        (fun guess ->
+           let truth_status = truth_of_guess reference guess in
+           let () = Ocolor_format.printf "%a@." pp_truths_and_word truth_status in
+           ()
+        )
+        tries
+    in
+    ()
+
+
 let main () =
   let usage_msg = Format.asprintf "%s [--simulation] [--first <letter>] [--length <length>]" Sys.argv.(0) in
   let simulation = ref false in
+  let play = ref false in
+  let brag = ref false in
   let first = ref "" in
   let length = ref 0 in
   let anon_fun _ = () in
   let speclist = [
     ("--simulation", Arg.Set simulation, "Play against itself");
+    ("--play", Arg.Set play, "Play mode");
+    ("--brag", Arg.Set brag, "Only with --play mode");
     ("--first", Arg.Set_string first, "First letter");
     ("--length", Arg.Set_int length, "Length");
   ]
@@ -478,5 +535,7 @@ let main () =
   let () = Arg.parse speclist anon_fun usage_msg in
   if !simulation then
     simulation_main ()
+  else if !play then
+    play_main !brag
   else
     interactive_main !first.[0] !length
