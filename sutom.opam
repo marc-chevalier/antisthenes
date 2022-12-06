@@ -1,0 +1,24 @@
+opam-version: "2.0"
+name: "Antisthenes"
+synopsis: "A solver for sutom"
+description: """
+A Naive Tool Imitating Sutom That Helps Extructing Nice Efficient Solutions
+"""
+maintainer: ["Marc Chevalier"]
+authors: ["Marc Chevalier"]
+license: "MIT"
+tags: ["game" "sutom"]
+homepage: "https://github.com/marc-chevalier/antisthenes"
+bug-reports: "https://github.com/marc-chevalier/antisthenes/issues"
+depends: [
+  "ocaml"
+  "dune" {>= "3.6"}
+  "re"
+  "plato"
+  "ocolor"
+  "ubase"
+]
+build: [
+  ["dune" "build" "-p" name "-j" jobs "@install"]
+]
+dev-repo: "git+https://github.com/marc-chevalier/antisthenes.git"

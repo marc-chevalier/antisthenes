@@ -1,0 +1,3 @@
+(library
+ (name sutom)
+ (libraries ocolor plato re ubase))
